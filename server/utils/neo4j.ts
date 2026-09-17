@@ -59,19 +59,113 @@ function normalize(v: unknown): unknown {
   return out
 }
 
+interface QueryApiResponse {
+  errors?: Array<{ message?: string; code?: string }>
+  data?: { fields?: string[]; values?: unknown[][] }
+}
+
+class DatabaseMissingError extends Error {
+  status: number
+  database: string
+
+  constructor(database: string, status: number, message: string) {
+    super(message)
+    this.name = 'DatabaseMissingError'
+    this.database = database
+    this.status = status
+  }
+}
+
+function isDatabaseMissing(status: number, msg: string, code: string): boolean {
+  if (status === 404) return true
+  const text = `${status} ${msg} ${code}`.toLowerCase()
+  return text.includes('database does not exist')
+    || text.includes('database not found')
+    || text.includes('could not be found')
+    || (text.includes('not found') && text.includes('database'))
+}
+
+let resolvedDatabase: string | null = null
+
+async function discoverDatabase(c: Neo4jConfig): Promise<string | null> {
+  try {
+    const auth = `Basic ${btoa(`${c.user}:${c.password}`)}`
+    const res = await fetch(`https://${c.host}/db/system/query/v2`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: auth },
+      body: JSON.stringify({ statement: 'SHOW DATABASES' }),
+    })
+    const body = await res.json() as QueryApiResponse
+    if (!res.ok || (body.errors && body.errors.length)) return null
+    const fields = body.data?.fields ?? []
+    const values = body.data?.values ?? []
+    const idx = fields.indexOf('name')
+    if (idx < 0) return null
+    const names = values.map((row) => String(normalize(row[idx]) ?? '')).filter((n) => n && n !== 'system')
+    return names.find((n) => n === 'neo4j') ?? names[0] ?? null
+  } catch {
+    return null
+  }
+}
+
+export async function usedDatabaseName(): Promise<string> {
+  if (resolvedDatabase) return resolvedDatabase
+  const c = neo4jConfig()
+  if (c.database && c.database !== 'neo4j') return c.database
+  const discovered = c.host ? await discoverDatabase(c) : null
+  return discovered ?? c.database ?? 'neo4j'
+}
+
 async function cypher(statement: string, parameters: Record<string, unknown> = {}): Promise<QueryRow[]> {
   const c = neo4jConfig()
-  const url = `https://${c.host}/db/${c.database}/query/v2`
+  let database = resolvedDatabase ?? c.database
   const auth = `Basic ${btoa(`${c.user}:${c.password}`)}`
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: auth },
-    body: JSON.stringify({ statement, parameters }),
-  })
-  const body = await res.json() as { errors?: Array<{ message?: string; code?: string }>; data?: { fields?: string[]; values?: unknown[][] } }
-  if (!res.ok || (body.errors && body.errors.length)) {
-    const msg = body.errors?.[0]?.message || res.statusText || String(res.status)
-    throw new Error(`Neo4j query failed (${res.status}): ${msg}`)
+
+  const run = async (db: string) => {
+    const url = `https://${c.host}/db/${db}/query/v2`
+    let res: Response
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: auth },
+        body: JSON.stringify({ statement, parameters }),
+      })
+    } catch (fetchErr) {
+      throw new Error(`Neo4j fetch failed (${url}): ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`)
+    }
+    let body: QueryApiResponse
+    try {
+      body = await res.json()
+    } catch {
+      throw new Error(`Neo4j returned a non-JSON response (${res.status} ${res.statusText}) from ${url}`)
+    }
+    if (!res.ok || (body.errors && body.errors.length)) {
+      const msg = body.errors?.[0]?.message || res.statusText || String(res.status)
+      const code = body.errors?.[0]?.code ?? ''
+      if (isDatabaseMissing(res.status, msg, code)) throw new DatabaseMissingError(db, res.status, msg)
+      throw new Error(`Neo4j query failed (${res.status}): ${msg}`)
+    }
+    return body
+  }
+
+  let body: QueryApiResponse
+  try {
+    body = await run(database)
+  } catch (err) {
+    if (err instanceof DatabaseMissingError) {
+      const discovered = c.host ? await discoverDatabase(c) : null
+      if (discovered) {
+        resolvedDatabase = discovered
+        body = await run(discovered)
+      } else {
+        throw new Error(
+          `Database "${err.database}" does not exist on ${c.host}. Set NUXT_NEO4J_DATABASE to the database name `
+          + `shown in Aura (AuraDB → your instance → Connections → the segment after /db/ in the Query API URL).`,
+        )
+      }
+    } else {
+      throw err
+    }
   }
   const fields = body.data?.fields ?? []
   const values = body.data?.values ?? []

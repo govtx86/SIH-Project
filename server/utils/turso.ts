@@ -47,17 +47,23 @@ function decodeValue(v: unknown): unknown {
 
 async function pipeline(requests: PipelineRequest[]): Promise<Array<ParsedExecuteResult | null>> {
   const i = tursoInfo()
-  const res = await fetch(`${i.url}/v2/pipeline`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${i.token}`,
-    },
-    body: JSON.stringify({ requests }),
-  })
+  const url = `${i.url}/v2/pipeline`
+  let res: Response
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${i.token}`,
+      },
+      body: JSON.stringify({ requests }),
+    })
+  } catch (fetchErr) {
+    throw new Error(`Turso fetch failed (${url}): ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`)
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => '')
-    throw new Error(`Turso request failed (${res.status}): ${text.slice(0, 200)}`)
+    throw new Error(`Turso request failed (${res.status}) at ${url}: ${text.slice(0, 200)}`)
   }
   const body = await res.json() as {
     results: Array<{ type: string; response?: { type: string; result?: { cols: Array<{ name?: string }>; rows: unknown[][] } } } | null>
