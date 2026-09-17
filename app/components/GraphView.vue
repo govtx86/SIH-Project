@@ -60,26 +60,22 @@ const STYLE: any[] = [
 ]
 
 function toElements(g: GraphData) {
-  const byAddr = new Map(g.nodes.map((n) => [n.data.address, n.data]))
   const nodes = g.nodes.map((n) => ({
     data: {
       ...n.data,
       id: n.data.address,
-      class: n.data.isSuspect ? 'suspect' : n.data.isExchange ? 'exchange' : 'wallet',
       label: n.data.isSuspect ? 'SUSPECT' : shortAddr(n.data.address, 7, 5),
     },
+    classes: n.data.isSuspect ? 'suspect' : n.data.isExchange ? 'exchange' : 'wallet',
   }))
-  const edges = g.edges.map((e) => {
-    const sourceClass = e.data.direction === 'in' ? 'in' : 'out'
-    return {
-      data: {
-        ...e.data,
-        id: e.data.id,
-        class: sourceClass,
-        label: `${e.data.amount}\n${shortAddr(e.data.source, 5, 3)} → ${shortAddr(e.data.target, 5, 3)}`,
-      },
-    }
-  })
+  const edges = g.edges.map((e) => ({
+    data: {
+      ...e.data,
+      id: e.data.id,
+      label: `${e.data.amount}\n${shortAddr(e.data.source, 5, 3)} → ${shortAddr(e.data.target, 5, 3)}`,
+    },
+    classes: e.data.direction === 'in' ? 'in' : 'out',
+  }))
   return { nodes, edges }
 }
 
