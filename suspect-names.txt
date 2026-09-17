@@ -1,0 +1,11 @@
+# Suspect / KYC identity name pool
+#
+# Add one name per line. These names are used for the suspect's account holder
+# and for KYC identities on exchange wallets (deterministic per wallet).
+# Lines starting with '#' are ignored (also blank lines).
+#
+# If this file is empty (or not present), random generated names are used.
+#
+# Example:
+# Jean Redfield
+# Malik Okafor-Blackwood

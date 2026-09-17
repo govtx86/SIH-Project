@@ -1,0 +1,6 @@
+NUXT_NEO4J_HOST=<instance-id>.databases.neo4j.io
+NUXT_NEO4J_USER=neo4j
+NUXT_NEO4J_PASSWORD=<aura-password>
+NUXT_NEO4J_DATABASE=neo4j
+NUXT_TURSO_URL=https://<org>-<db>.turso.io
+NUXT_TURSO_TOKEN=<turso-token>
